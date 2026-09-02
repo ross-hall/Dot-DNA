@@ -85,8 +85,8 @@
 
     <div class="section">
       <h2>Structure</h2>
-      <label class="field">Count <span class="range-val" id="val-count">26</span></label>
-      <input type="range" id="rng-count" min="8" max="90" step="1" value="26">
+      <label class="field">Count <span class="range-val" id="val-count">220</span></label>
+      <input type="range" id="rng-count" min="20" max="500" step="5" value="220">
 
       <label class="field">Scatter <span class="range-val" id="val-scatter">30%</span></label>
       <input type="range" id="rng-scatter" min="0" max="100" step="1" value="30">
@@ -135,8 +135,8 @@
   const RADIUS = 90;           // helix radius (strand-to-axis distance), world units
   const STRAND_SPAN = 520;     // vertical extent of the helix, world units
   const BASE_PERIOD_SEC = 8;   // seconds per revolution at speed 1.0×
-  const DOT_OUTER_R = 17;      // base outer-ring radius, world units — the reference dot's muted disc
-  const DOT_INNER_R = 7;       // base white-core radius, world units
+  const DOT_OUTER_R = 5;       // base outer-ring radius, world units — the reference dot's muted disc
+  const DOT_INNER_R = 2;       // base white-core radius, world units
   // Scatter (0–100%) maps onto both jitter axes together — how far a dot can
   // stray perpendicular to the strand's true centerline (world units), and
   // how far it can stray from its even along-strand slot (as a fraction of
@@ -156,7 +156,7 @@
   const CORE = '#ffffff';
 
   // ====================== STATE ======================
-  let count = 26, pitch = 1, speedMult = 1, angleDeg = 25, scatterPct = 30;
+  let count = 220, pitch = 1, speedMult = 1, angleDeg = 25, scatterPct = 30;
   let strands = null; // built by regenerateLayout()
   let rotation = 0;
   let lastTs = null;
@@ -189,7 +189,7 @@
           baseTheta: u*Math.PI*2*pitch + phase,
           y: yTop + u*STRAND_SPAN,
           dx: Math.cos(a)*rr, dy: Math.sin(a)*rr,
-          sizeMul: 0.85 + Math.random()*0.35
+          sizeMul: 0.4 + Math.pow(Math.random(), 1.8)*1.4 // mostly small, occasional larger — matches a fine particle scatter
         });
       }
       return dots;
