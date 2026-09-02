@@ -52,6 +52,16 @@
     border-radius:6px; padding:7px 9px; font-family:inherit; font-size:12.5px;
   }
 
+  .color-row{ display:flex; align-items:center; gap:10px; }
+  input[type=color]{
+    -webkit-appearance:none; appearance:none; width:34px; height:34px; padding:0;
+    border:1px solid var(--panel-border); border-radius:8px; background:none; cursor:pointer; flex-shrink:0;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper{ padding:3px; }
+  input[type=color]::-webkit-color-swatch{ border:none; border-radius:5px; }
+  input[type=color]::-moz-color-swatch{ border:none; border-radius:5px; }
+  .color-hex{ font-size:11.5px; color:var(--ink-dim); letter-spacing:.02em; }
+
   button{
     font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer;
     border-radius:7px; border:1px solid transparent; padding:10px 14px; width:100%;
@@ -108,6 +118,21 @@
 
       <label class="field">Twinkle <span class="range-val" id="val-twinkle">45%</span></label>
       <input type="range" id="rng-twinkle" min="0" max="100" step="1" value="45">
+    </div>
+
+    <div class="section">
+      <h2>Colors</h2>
+      <label class="field">Dot color</label>
+      <div class="color-row">
+        <input type="color" id="clr-dot" value="#3c3f58">
+        <span class="color-hex" id="val-dot-color">#3C3F58</span>
+      </div>
+
+      <label class="field">Background color</label>
+      <div class="color-row">
+        <input type="color" id="clr-bg" value="#04051a">
+        <span class="color-hex" id="val-bg-color">#04051A</span>
+      </div>
     </div>
 
     <div class="section">
@@ -173,15 +198,15 @@
   const VIDEO_DIM = 1080;
   const VIDEO_BITRATE = 12_000_000;
 
-  // Colors lifted from the reference dot: near-black navy ground, a muted
-  // slate-indigo disc, and a solid white core — no connecting lines at all,
-  // just a scatter of that one motif tracing the two strands.
-  const DISC = '#3c3f58';
+  // The dot's core always stays white — it's the fixed highlight that reads
+  // against any dot/background color combination. Dot (disc) color and
+  // background color are both user-adjustable — see STATE below.
   const CORE = '#ffffff';
 
   // ====================== STATE ======================
   let count = 220, pitch = 1, speedMult = 1, angleDeg = 25, scatterPct = 30;
   let lengthMult = 1.65, sizePct = 100, sizeVarPct = 100, twinklePct = 45;
+  let dotColor = '#3c3f58', bgColor = '#04051a';
   let strands = null; // built by regenerateLayout()
   let rotation = 0;
   let lastTs = null;
@@ -239,13 +264,29 @@
   function depthScale(t){ return 0.6 + t*0.6; }    // 0.6 – 1.2
   function depthOpacity(t){ return 0.4 + t*0.6; }  // 0.4 – 1.0
 
+  // ---- color helper: lightens (amt > 0) or darkens (amt < 0) a hex color,
+  // used to derive the background gradient's two stops from one picked color
+  function hexToRgb(hex){
+    hex = hex.replace('#','');
+    if(hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+    const n = parseInt(hex, 16);
+    return [(n>>16)&255, (n>>8)&255, n&255];
+  }
+  function rgbToHex(rgb){
+    return '#' + rgb.map(v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
+  }
+  function shade(hex, amt){
+    const f = c => amt >= 0 ? c + (255-c)*amt : c * (1+amt);
+    return rgbToHex(hexToRgb(hex).map(f));
+  }
+
   // ---- draws the full scene into ctx, in world coordinates (0..VB), at the given rotation/angle ----
   function drawScene(rot, angleRad){
     const cx = VB/2, cy = VB/2;
 
     const bg = ctx.createRadialGradient(cx, cy*0.85, VB*0.1, cx, cy, VB*0.85);
-    bg.addColorStop(0, '#080a24');
-    bg.addColorStop(1, '#03040f');
+    bg.addColorStop(0, shade(bgColor, 0.14));
+    bg.addColorStop(1, shade(bgColor, -0.3));
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, VB, VB);
 
@@ -272,7 +313,7 @@
       const s = depthScale(t) * it.sizeMul;
       const op = depthOpacity(t);
       ctx.globalAlpha = op;
-      ctx.fillStyle = DISC;
+      ctx.fillStyle = dotColor;
       ctx.beginPath(); ctx.arc(it.x, it.y, DOT_OUTER_R*s, 0, Math.PI*2); ctx.fill();
       ctx.globalAlpha = Math.max(op, 0.85);
       ctx.fillStyle = CORE;
@@ -349,6 +390,14 @@
     twinklePct = parseFloat(e.target.value);
     syncVal('val-twinkle', Math.round(twinklePct) + '%');
   });
+  el('clr-dot').addEventListener('input', e => {
+    dotColor = e.target.value;
+    syncVal('val-dot-color', dotColor.toUpperCase());
+  });
+  el('clr-bg').addEventListener('input', e => {
+    bgColor = e.target.value;
+    syncVal('val-bg-color', bgColor.toUpperCase());
+  });
   el('rng-speed').addEventListener('input', e => {
     speedMult = parseFloat(e.target.value);
     syncVal('val-speed', speedMult.toFixed(2) + '×');
@@ -365,7 +414,7 @@
   let exportInProgress = false;
 
   function setControlsDisabled(disabled){
-    ['rng-count','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-twinkle','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
+    ['rng-count','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-twinkle','clr-dot','clr-bg','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
   }
 
   el('btn-export').addEventListener('click', async () => {
