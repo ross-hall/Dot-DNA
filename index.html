@@ -88,11 +88,23 @@
       <label class="field">Count <span class="range-val" id="val-count">220</span></label>
       <input type="range" id="rng-count" min="20" max="500" step="5" value="220">
 
-      <label class="field">Scatter <span class="range-val" id="val-scatter">30%</span></label>
-      <input type="range" id="rng-scatter" min="0" max="100" step="1" value="30">
+      <label class="field">Length <span class="range-val" id="val-length">1.65×</span></label>
+      <input type="range" id="rng-length" min="0.6" max="2.5" step="0.05" value="1.65">
 
       <label class="field">Pitch <span class="range-val" id="val-pitch">1.0 turns</span></label>
       <input type="range" id="rng-pitch" min="1" max="6" step="0.5" value="1">
+    </div>
+
+    <div class="section">
+      <h2>Appearance</h2>
+      <label class="field">Scatter <span class="range-val" id="val-scatter">30%</span></label>
+      <input type="range" id="rng-scatter" min="0" max="100" step="1" value="30">
+
+      <label class="field">Size <span class="range-val" id="val-size">100%</span></label>
+      <input type="range" id="rng-size" min="40" max="220" step="5" value="100">
+
+      <label class="field">Size variability <span class="range-val" id="val-sizevar">100%</span></label>
+      <input type="range" id="rng-sizevar" min="0" max="150" step="5" value="100">
     </div>
 
     <div class="section">
@@ -131,9 +143,9 @@
 (function(){
 
   // ====================== TUNABLES ======================
-  const VB = 760;              // world-space stage size (square)
+  const VB = 760;              // world-space stage size (square) — the strand can run longer than this and simply crops at the edges
   const RADIUS = 90;           // helix radius (strand-to-axis distance), world units
-  const STRAND_SPAN = 520;     // vertical extent of the helix, world units
+  const LENGTH_BASE = 520;     // vertical extent of the helix at Length = 1×, world units
   const BASE_PERIOD_SEC = 8;   // seconds per revolution at speed 1.0×
   const DOT_OUTER_R = 5;       // base outer-ring radius, world units — the reference dot's muted disc
   const DOT_INNER_R = 2;       // base white-core radius, world units
@@ -157,6 +169,7 @@
 
   // ====================== STATE ======================
   let count = 220, pitch = 1, speedMult = 1, angleDeg = 25, scatterPct = 30;
+  let lengthMult = 1.65, sizePct = 100, sizeVarPct = 100;
   let strands = null; // built by regenerateLayout()
   let rotation = 0;
   let lastTs = null;
@@ -171,8 +184,9 @@
   // bounded range — a real scatter, not a rigid grid, while staying close
   // enough to the ideal helix curve to still read as two coherent strands.
   function regenerateLayout(){
+    const strandSpan = LENGTH_BASE*lengthMult;
     const cy = VB/2;
-    const yTop = cy - STRAND_SPAN/2;
+    const yTop = cy - strandSpan/2;
     const slotSpacing = count > 1 ? 1/(count-1) : 0;
     const scatterFrac = scatterPct/100;
     const scatterJitter = SCATTER_JITTER_MAX*scatterFrac;
@@ -187,9 +201,11 @@
         const a = Math.random()*Math.PI*2, rr = Math.sqrt(Math.random())*scatterJitter;
         dots.push({
           baseTheta: u*Math.PI*2*pitch + phase,
-          y: yTop + u*STRAND_SPAN,
+          y: yTop + u*strandSpan,
           dx: Math.cos(a)*rr, dy: Math.sin(a)*rr,
-          sizeMul: 0.4 + Math.pow(Math.random(), 1.8)*1.4 // mostly small, occasional larger — matches a fine particle scatter
+          // raw skewed size factor (mostly small, occasional larger) — blended
+          // toward 1 (uniform) by the Size variability control at draw time
+          rawSizeFactor: 0.4 + Math.pow(Math.random(), 1.8)*1.4
         });
       }
       return dots;
@@ -216,6 +232,9 @@
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, VB, VB);
 
+    const sizeScale = sizePct/100;
+    const sizeVarFrac = sizeVarPct/100;
+
     const items = [];
     strands.forEach(dots => {
       dots.forEach(d => {
@@ -223,7 +242,8 @@
         const x = cx + RADIUS*Math.cos(theta);
         const z = RADIUS*Math.sin(theta);
         const p = rotate2D(x+d.dx, d.y+d.dy, cx, cy, angleRad);
-        items.push({ x:p.x, y:p.y, z, sizeMul:d.sizeMul });
+        const sizeMul = (1 + (d.rawSizeFactor-1)*sizeVarFrac) * sizeScale;
+        items.push({ x:p.x, y:p.y, z, sizeMul });
       });
     });
 
@@ -288,10 +308,23 @@
     syncVal('val-scatter', Math.round(scatterPct) + '%');
     regenerateLayout();
   });
+  el('rng-length').addEventListener('input', e => {
+    lengthMult = parseFloat(e.target.value);
+    syncVal('val-length', lengthMult.toFixed(2) + '×');
+    regenerateLayout();
+  });
   el('rng-pitch').addEventListener('input', e => {
     pitch = parseFloat(e.target.value);
     syncVal('val-pitch', pitch.toFixed(1) + ' turns');
     regenerateLayout();
+  });
+  el('rng-size').addEventListener('input', e => {
+    sizePct = parseFloat(e.target.value);
+    syncVal('val-size', Math.round(sizePct) + '%');
+  });
+  el('rng-sizevar').addEventListener('input', e => {
+    sizeVarPct = parseFloat(e.target.value);
+    syncVal('val-sizevar', Math.round(sizeVarPct) + '%');
   });
   el('rng-speed').addEventListener('input', e => {
     speedMult = parseFloat(e.target.value);
@@ -309,7 +342,7 @@
   let exportInProgress = false;
 
   function setControlsDisabled(disabled){
-    ['rng-count','rng-scatter','rng-pitch','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
+    ['rng-count','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
   }
 
   el('btn-export').addEventListener('click', async () => {
