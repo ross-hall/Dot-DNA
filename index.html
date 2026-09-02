@@ -2,150 +2,424 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Dot DNA Helix</title>
+<title>Dot DNA</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
-  html,body{
-    margin:0; height:100%; overflow:hidden;
-    background:#04051a;
-    display:flex; align-items:center; justify-content:center;
+  :root{
+    --app-bg: #e9ebee;
+    --panel-bg: #fbfbfc;
+    --panel-border: #dcdfe4;
+    --ink: #15171b;
+    --ink-dim: #6b7078;
+    --accent: #35508f;
+    --accent-ink: #f4f6fb;
+    --track: #d8dbe1;
   }
-  svg{ display:block; width:100vw; height:100vh; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--app-bg); color:var(--ink);
+    font-family:'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace; }
+  .app{ display:flex; height:100vh; width:100vw; overflow:hidden; }
+
+  .sidebar{
+    width:270px; min-width:270px; background:var(--panel-bg);
+    border-right:1px solid var(--panel-border);
+    display:flex; flex-direction:column; overflow-y:auto;
+  }
+  .sidebar-head{ padding:20px 18px 14px; border-bottom:1px solid var(--panel-border); }
+  .eyebrow{ font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); font-weight:600; margin-bottom:4px; }
+  .sidebar-head h1{ font-size:16px; margin:0 0 3px; font-weight:600; letter-spacing:-.01em; }
+  .sidebar-head p{ font-size:11px; color:var(--ink-dim); margin:0; line-height:1.5; }
+
+  .section{ padding:16px 18px; border-bottom:1px solid var(--panel-border); }
+  .section h2{ font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-dim); margin:0 0 12px; font-weight:600; }
+
+  label.field{ display:block; font-size:11px; color:var(--ink-dim); margin:14px 0 6px; }
+  label.field:first-child{ margin-top:0; }
+  .range-val{ float:right; color:var(--accent); font-weight:600; }
+  input[type=range]{
+    width:100%; -webkit-appearance:none; appearance:none; height:3px; border-radius:2px;
+    background:var(--track); outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:13px; height:13px; border-radius:50%;
+    background:var(--accent); cursor:pointer; border:2px solid var(--panel-bg); box-shadow:0 0 0 1px var(--accent);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:13px; height:13px; border-radius:50%; background:var(--accent); cursor:pointer; border:2px solid var(--panel-bg); box-shadow:0 0 0 1px var(--accent);
+  }
+  input[type=number]{
+    width:100%; background:#fff; border:1px solid var(--panel-border); color:var(--ink);
+    border-radius:6px; padding:7px 9px; font-family:inherit; font-size:12.5px;
+  }
+
+  button{
+    font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer;
+    border-radius:7px; border:1px solid transparent; padding:10px 14px; width:100%;
+    transition: transform .08s ease, background .15s, border-color .15s, opacity .15s;
+  }
+  button:active{ transform:scale(0.98); }
+  button:disabled{ opacity:.5; cursor:default; transform:none; }
+  .btn-primary{ background:var(--accent); color:var(--accent-ink); }
+  .btn-primary:hover:not(:disabled){ background:#2a4278; }
+
+  .status-line{ font-size:10.5px; color:var(--accent); margin-top:10px; min-height:13px; line-height:1.5; }
+  .footer-space{ flex:1; }
+  .hint{ font-size:10.5px; color:var(--ink-dim); line-height:1.6; }
+
+  .stage-wrap{ flex:1; position:relative; display:flex; align-items:center; justify-content:center; background:var(--app-bg); }
+  .stage-card{
+    border-radius:12px; overflow:hidden; box-shadow:0 24px 60px -20px rgba(20,20,25,.18), 0 0 0 1px rgba(20,20,25,.05);
+    width:min(84vw,84vh); height:min(84vw,84vh);
+  }
+  canvas{ display:block; width:100%; height:100%; }
 </style>
 </head>
 <body>
-<svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-head">
+      <div class="eyebrow">Reciprocal Space</div>
+      <h1>Dot DNA</h1>
+      <p>A rotating double helix built from a dot mesh, tuned for a seamless loop.</p>
+    </div>
+
+    <div class="section">
+      <h2>Structure</h2>
+      <label class="field">Count <span class="range-val" id="val-count">70</span></label>
+      <input type="range" id="rng-count" min="20" max="150" step="1" value="70">
+
+      <label class="field">Pitch <span class="range-val" id="val-pitch">2.5 turns</span></label>
+      <input type="range" id="rng-pitch" min="1" max="6" step="0.5" value="2.5">
+    </div>
+
+    <div class="section">
+      <h2>Motion</h2>
+      <label class="field">Speed <span class="range-val" id="val-speed">1.0×</span></label>
+      <input type="range" id="rng-speed" min="0.25" max="3" step="0.05" value="1">
+
+      <label class="field">Angle <span class="range-val" id="val-angle">25°</span></label>
+      <input type="range" id="rng-angle" min="-90" max="90" step="1" value="25">
+    </div>
+
+    <div class="section">
+      <h2>Export</h2>
+      <label class="field">Loops</label>
+      <input type="number" id="num-loops" min="1" max="6" value="1">
+      <button class="btn-primary" id="btn-export" style="margin-top:10px;">Export video (.mp4)</button>
+      <div class="status-line" id="status"></div>
+    </div>
+
+    <div class="footer-space"></div>
+    <div class="section" style="border-bottom:none;">
+      <div class="hint">
+        Rotation is continuous, so any speed loops seamlessly — Loops just
+        records more turns in one file. MP4 export uses Chrome/Edge's own
+        built-in recorder; other browsers can still view the live animation.
+      </div>
+    </div>
+  </div>
+
+  <div class="stage-wrap">
+    <div class="stage-card"><canvas id="stage"></canvas></div>
+  </div>
+</div>
+
 <script>
 (function(){
 
   // ====================== TUNABLES ======================
-  const PAIRS = 16;            // nucleotide pairs (rungs) along the strand
-  const TOTAL_TURNS = 2;       // full spiral turns visible top to bottom
-  const PERIOD_SEC = 8;        // seconds for one full 360° rotation — the loop point
-  const RADIUS = 100;          // helix radius, px (at the reference viewBox scale)
-  const STRAND_SPAN = 560;     // vertical extent of the helix, px
-  const DOT_OUTER_R = 20;      // outer circle radius (the muted disc)
-  const DOT_INNER_R = 8;       // inner circle radius (the white core)
-  const EDGE_FADE_PAIRS = 2.2; // how many pairs at each tip fade out
+  const VB = 760;              // world-space stage size (square)
+  const FIBERS = 5;            // dots per ring — index 0 is the "core" backbone dot, 1..4 scatter around it
+  const CORE_R = 3.4;          // core dot radius, world units
+  const FIBER_R = 1.7;         // scatter dot radius, world units
+  const FIBER_JITTER = 8;      // max scatter radius around the core, world units
+  const RADIUS = 92;           // helix radius (strand-to-axis distance), world units
+  const STRAND_SPAN = 520;     // vertical extent of the helix, world units
+  const BASE_PERIOD_SEC = 8;   // seconds per revolution at speed 1.0×
+  const RUNG_EVERY = 18;       // draw a cross-strand rung roughly every N segments
 
-  // Colors lifted from the reference dot: near-black navy background, a
-  // muted slate-indigo disc, and a solid white core.
-  const BG = '#04051a';
-  const DISC = '#3c3f58';
-  const CORE = '#ffffff';
-  const BOND = '#3c3f58'; // backbone/rung strokes reuse the disc color, dimmed via opacity
+  const VIDEO_FPS = 30;
+  const VIDEO_DIM = 1080;
+  const VIDEO_BITRATE = 12_000_000;
 
-  const VB_W = 700, VB_H = 700;
-  const cx = VB_W/2, cy = VB_H/2;
+  // ====================== STATE ======================
+  let count = 70, pitch = 2.5, speedMult = 1, angleDeg = 25, loops = 1;
+  let strands = null; // built by regenerateLayout()
+  let rotation = 0;
+  let lastTs = null;
+  let rafId = null;
 
-  const svg = document.getElementById('stage');
-  svg.setAttribute('viewBox', `0 0 ${VB_W} ${VB_H}`);
-  svg.style.background = BG;
+  const canvas = document.getElementById('stage');
+  let ctx = canvas.getContext('2d'); // drawScene always draws through this — export retargets it temporarily
 
-  function el(tag, attrs){
-    const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for(const k in attrs) n.setAttribute(k, attrs[k]);
-    return n;
+  // ---- layout: fixed per-point structure, rebuilt whenever Count/Pitch change ----
+  function regenerateLayout(){
+    const cx = VB/2, cy = VB/2;
+    const ySpacing = STRAND_SPAN / (count - 1);
+    const yTop = cy - STRAND_SPAN/2;
+    const twistPerPair = (Math.PI*2*pitch) / (count - 1);
+
+    strands = ['A','B'].map(strand => {
+      const phase = strand === 'B' ? Math.PI : 0;
+      const segments = [];
+      for(let i=0;i<count;i++){
+        const fibers = [];
+        for(let k=0;k<FIBERS;k++){
+          if(k === 0){ fibers.push({ dx:0, dy:0, r:CORE_R, core:true }); continue; }
+          const a = Math.random()*Math.PI*2, rr = Math.sqrt(Math.random())*FIBER_JITTER;
+          fibers.push({ dx: Math.cos(a)*rr, dy: Math.sin(a)*rr, r:FIBER_R, core:false });
+        }
+        segments.push({ baseTheta: i*twistPerPair + phase, y: yTop + i*ySpacing, fibers });
+      }
+      return segments;
+    });
   }
 
-  // ---- persistent element pools, updated (not recreated) every frame ----
-  const rungEls = [];
-  const backboneAEls = [], backboneBEls = [];
-  const dotEls = []; // { g, outer, inner, strand, i }
+  // ---- projection: centerline (x,y,z) for a segment at a given rotation ----
+  function centerline(seg, rot, cx, cy){
+    const theta = seg.baseTheta + rot;
+    return { x: cx + RADIUS*Math.cos(theta), y: seg.y, z: RADIUS*Math.sin(theta) };
+  }
 
-  for(let i=0;i<PAIRS;i++){
-    rungEls.push(svg.appendChild(el('line', { stroke: BOND, 'stroke-width': 2, 'stroke-linecap': 'round' })));
+  function rotate2D(x, y, cx, cy, rad){
+    const dx = x-cx, dy = y-cy;
+    const c = Math.cos(rad), s = Math.sin(rad);
+    return { x: cx + dx*c - dy*s, y: cy + dx*s + dy*c };
   }
-  for(let i=0;i<PAIRS-1;i++){
-    backboneAEls.push(svg.appendChild(el('line', { stroke: BOND, 'stroke-width': 3, 'stroke-linecap': 'round' })));
-    backboneBEls.push(svg.appendChild(el('line', { stroke: BOND, 'stroke-width': 3, 'stroke-linecap': 'round' })));
+
+  function depthT(z){ return (z/RADIUS + 1)/2; } // 0 = far, 1 = near
+  function depthColor(t){
+    const near = [20,20,20], far = [110,111,102];
+    const c = near.map((v,i) => Math.round(far[i] + (v-far[i])*t));
+    return `rgb(${c[0]},${c[1]},${c[2]})`;
   }
-  ['A','B'].forEach(strand => {
-    for(let i=0;i<PAIRS;i++){
-      const g = svg.appendChild(el('g', {}));
-      const outer = g.appendChild(el('circle', { r: DOT_OUTER_R, fill: DISC, cx: 0, cy: 0 }));
-      const inner = g.appendChild(el('circle', { r: DOT_INNER_R, fill: CORE, cx: 0, cy: 0 }));
-      dotEls.push({ g, outer, inner, strand, i });
+  function depthOpacity(t){ return 0.62 + t*0.38; }
+  function depthScale(t){ return 0.72 + t*0.4; }
+
+  // ---- draws the full scene into ctx, in world coordinates (0..VB), at the given rotation/angle ----
+  function drawScene(rot, angleRad){
+    const cx = VB/2, cy = VB/2;
+
+    // background — a soft radial gradient, drawn on-canvas so it's part of any exported frame too
+    const bg = ctx.createRadialGradient(cx*0.7, cy*0.6, VB*0.15, cx, cy, VB*0.85);
+    bg.addColorStop(0, '#f8f8f6');
+    bg.addColorStop(1, '#e2e2df');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, VB, VB);
+
+    // resolve every drawable primitive (dots + lines) into a flat, depth-sorted list
+    const items = [];
+    const proj = strands.map(segs => segs.map(seg => {
+      const c = centerline(seg, rot, cx, cy);
+      const t = depthT(c.z);
+      const pts = seg.fibers.map(f => {
+        const p = rotate2D(c.x+f.dx, c.y+f.dy, cx, cy, angleRad);
+        return { x:p.x, y:p.y, r:f.r, core:f.core };
+      });
+      return { pts, t, z:c.z };
+    }));
+
+    proj.forEach(segs => {
+      for(let i=0;i<segs.length;i++){
+        const seg = segs[i];
+        seg.pts.forEach(p => items.push({ kind:'dot', z:seg.z, t:seg.t, x:p.x, y:p.y, r:p.r*depthScale(seg.t), core:p.core }));
+        if(i < segs.length-1){
+          const next = segs[i+1];
+          const avgT = (seg.t+next.t)/2, avgZ = (seg.z+next.z)/2;
+          for(let k=0;k<FIBERS;k++){
+            items.push({ kind:'line', z:avgZ, t:avgT, x1:seg.pts[k].x, y1:seg.pts[k].y, x2:next.pts[k].x, y2:next.pts[k].y, w:1.1 });
+          }
+        }
+        for(let k=0;k<FIBERS-1;k++){
+          items.push({ kind:'line', z:seg.z, t:seg.t, x1:seg.pts[k].x, y1:seg.pts[k].y, x2:seg.pts[k+1].x, y2:seg.pts[k+1].y, w:0.9 });
+        }
+      }
+    });
+
+    for(let i=0;i<count;i+=RUNG_EVERY){
+      const a = proj[0][i], b = proj[1][i];
+      items.push({ kind:'line', z:(a.z+b.z)/2, t:(a.t+b.t)/2, x1:a.pts[0].x, y1:a.pts[0].y, x2:b.pts[0].x, y2:b.pts[0].y, w:1.3 });
+    }
+
+    items.sort((a,b) => a.z - b.z);
+    items.forEach(it => {
+      if(it.kind === 'line'){
+        ctx.strokeStyle = depthColor(it.t);
+        ctx.globalAlpha = depthOpacity(it.t) * 0.38;
+        ctx.lineWidth = it.w;
+        ctx.beginPath(); ctx.moveTo(it.x1,it.y1); ctx.lineTo(it.x2,it.y2); ctx.stroke();
+      } else {
+        ctx.fillStyle = depthColor(it.t);
+        ctx.globalAlpha = depthOpacity(it.t) * (it.core ? 1 : 0.85);
+        ctx.beginPath(); ctx.arc(it.x, it.y, it.r, 0, Math.PI*2); ctx.fill();
+      }
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // ====================== LIVE PREVIEW ======================
+  function fitCanvas(){
+    const dpr = window.devicePixelRatio || 1;
+    const size = canvas.clientWidth;
+    canvas.width = Math.round(size*dpr);
+    canvas.height = Math.round(size*dpr);
+    canvas.__scale = (size*dpr)/VB;
+  }
+  window.addEventListener('resize', fitCanvas);
+
+  function liveFrame(ts){
+    if(lastTs == null) lastTs = ts;
+    const dt = (ts - lastTs)/1000;
+    lastTs = ts;
+    const angularSpeed = (Math.PI*2/BASE_PERIOD_SEC) * speedMult;
+    rotation += dt*angularSpeed;
+
+    ctx.save();
+    ctx.scale(canvas.__scale, canvas.__scale);
+    drawScene(rotation, angleDeg*Math.PI/180);
+    ctx.restore();
+
+    rafId = requestAnimationFrame(liveFrame);
+  }
+
+  function startLive(){
+    fitCanvas();
+    if(rafId) cancelAnimationFrame(rafId);
+    lastTs = null;
+    rafId = requestAnimationFrame(liveFrame);
+  }
+
+  // ====================== CONTROLS ======================
+  const el = id => document.getElementById(id);
+  function syncVal(id, text){ el(id).textContent = text; }
+
+  el('rng-count').addEventListener('input', e => {
+    count = parseInt(e.target.value);
+    syncVal('val-count', count);
+    regenerateLayout();
+  });
+  el('rng-pitch').addEventListener('input', e => {
+    pitch = parseFloat(e.target.value);
+    syncVal('val-pitch', pitch.toFixed(1) + ' turns');
+    regenerateLayout();
+  });
+  el('rng-speed').addEventListener('input', e => {
+    speedMult = parseFloat(e.target.value);
+    syncVal('val-speed', speedMult.toFixed(2) + '×');
+  });
+  el('rng-angle').addEventListener('input', e => {
+    angleDeg = parseFloat(e.target.value);
+    syncVal('val-angle', Math.round(angleDeg) + '°');
+  });
+
+  // ====================== MP4 EXPORT ======================
+  // Same proven approach as Flow Weave's video export: canvas.captureStream()
+  // + MediaRecorder, real-time-paced so the recorder's own clock and the
+  // drawn animation stay in lockstep, using Chrome/Edge's built-in MP4 muxer.
+  let exportInProgress = false;
+
+  function setControlsDisabled(disabled){
+    ['rng-count','rng-pitch','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
+  }
+
+  el('btn-export').addEventListener('click', async () => {
+    if(exportInProgress) return;
+    const status = el('status');
+    const btn = el('btn-export');
+
+    if(typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream){
+      status.textContent = 'Video export needs a browser with MediaRecorder + canvas.captureStream support.';
+      return;
+    }
+    const mimeCandidates = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4'];
+    const mimeType = mimeCandidates.find(m => MediaRecorder.isTypeSupported(m));
+    if(!mimeType){
+      status.textContent = 'MP4 recording needs Chrome or Edge.';
+      return;
+    }
+
+    exportInProgress = true;
+    setControlsDisabled(true);
+    btn.disabled = true;
+    btn.textContent = 'Recording…';
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = VIDEO_DIM; exportCanvas.height = VIDEO_DIM;
+    exportCanvas.style.cssText = 'position:fixed;left:-99999px;top:0;';
+    document.body.appendChild(exportCanvas);
+    const exportCtx = exportCanvas.getContext('2d');
+    const scale = VIDEO_DIM / VB;
+
+    try{
+      const loopsN = Math.max(1, Math.min(6, parseInt(el('num-loops').value) || 1));
+      const angularSpeed = (Math.PI*2/BASE_PERIOD_SEC) * speedMult;
+      const cycleSec = (Math.PI*2)/angularSpeed;
+      const totalSeconds = cycleSec*loopsN;
+      const angleRad = angleDeg*Math.PI/180;
+      const startRotation = rotation; // continue smoothly from whatever the live preview is showing
+
+      const stream = exportCanvas.captureStream(VIDEO_FPS);
+      const [videoTrack] = stream.getVideoTracks();
+      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: VIDEO_BITRATE });
+      const chunks = [];
+      recorder.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+      const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+
+      recorder.start();
+      const t0 = performance.now();
+      const frameInterval = 1000/VIDEO_FPS;
+      let nextDraw = t0;
+      while(true){
+        const now = performance.now();
+        const elapsed = now - t0;
+        if(elapsed >= totalSeconds*1000) break;
+        if(now < nextDraw){ await new Promise(r => setTimeout(r, Math.min(nextDraw-now, 50))); continue; }
+        const frameRotation = startRotation + (elapsed/1000)*angularSpeed;
+        exportCtx.save();
+        exportCtx.scale(scale, scale);
+        drawSceneOn(exportCtx, frameRotation, angleRad);
+        exportCtx.restore();
+        videoTrack.requestFrame();
+        nextDraw += frameInterval;
+        status.textContent = `Recording video: ${(elapsed/1000).toFixed(1)}s / ${totalSeconds.toFixed(1)}s…`;
+        await new Promise(r => setTimeout(r, 0));
+      }
+      recorder.stop();
+      await stopped;
+
+      const blob = new Blob(chunks, { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'dot-dna-helix.mp4';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      status.textContent = `Done — ${loopsN} loop${loopsN>1?'s':''} exported.`;
+      setTimeout(() => { status.textContent = ''; }, 4000);
+    } catch(err){
+      status.textContent = 'Video export failed: ' + (err && err.message ? err.message : err);
+    } finally {
+      if(exportCanvas.parentNode) exportCanvas.parentNode.removeChild(exportCanvas);
+      exportInProgress = false;
+      setControlsDisabled(false);
+      btn.disabled = false;
+      btn.textContent = 'Export video (.mp4)';
     }
   });
 
-  // Depth (z, -RADIUS..RADIUS) -> visual scale / opacity, giving the
-  // rotation a 3D read without changing the dot's own colors.
-  function depthScale(z){ return 0.55 + (z/RADIUS + 1)/2 * 0.65; }   // 0.55 – 1.20
-  function depthOpacity(z){ return 0.32 + (z/RADIUS + 1)/2 * 0.68; } // 0.32 – 1.00
-  function edgeFade(i){
-    const distFromTop = i;
-    const distFromBottom = (PAIRS-1) - i;
-    const t = Math.min(distFromTop, distFromBottom) / EDGE_FADE_PAIRS;
-    return Math.max(0, Math.min(1, t));
+  // drawScene always renders through the module-level `ctx` — this thin
+  // wrapper lets export redirect the exact same draw logic onto the
+  // off-screen export canvas without duplicating it.
+  function drawSceneOn(targetCtx, rot, angleRad){
+    const prev = ctx;
+    ctx = targetCtx;
+    drawScene(rot, angleRad);
+    ctx = prev;
   }
 
-  const angularSpeed = (Math.PI*2) / PERIOD_SEC;
-  const twistPerPair = (Math.PI*2*TOTAL_TURNS) / (PAIRS-1);
-  const ySpacing = STRAND_SPAN / (PAIRS-1);
-  const yTop = cy - STRAND_SPAN/2;
-
-  function position(strand, i, rotation){
-    const theta = i*twistPerPair + rotation + (strand === 'B' ? Math.PI : 0);
-    return {
-      x: cx + RADIUS*Math.cos(theta),
-      y: yTop + i*ySpacing,
-      z: RADIUS*Math.sin(theta)
-    };
-  }
-
-  function frame(tMs){
-    const rotation = (tMs/1000) * angularSpeed;
-
-    const A = [], B = [];
-    for(let i=0;i<PAIRS;i++){
-      A.push(position('A', i, rotation));
-      B.push(position('B', i, rotation));
-    }
-
-    // backbones
-    for(let i=0;i<PAIRS-1;i++){
-      const a0=A[i], a1=A[i+1], z=(a0.z+a1.z)/2, fade=Math.min(edgeFade(i),edgeFade(i+1));
-      const lA = backboneAEls[i];
-      lA.setAttribute('x1',a0.x); lA.setAttribute('y1',a0.y);
-      lA.setAttribute('x2',a1.x); lA.setAttribute('y2',a1.y);
-      lA.setAttribute('opacity', depthOpacity(z)*0.55*fade);
-      lA.__z = z;
-
-      const b0=B[i], b1=B[i+1];
-      const lB = backboneBEls[i];
-      lB.setAttribute('x1',b0.x); lB.setAttribute('y1',b0.y);
-      lB.setAttribute('x2',b1.x); lB.setAttribute('y2',b1.y);
-      lB.setAttribute('opacity', depthOpacity((b0.z+b1.z)/2)*0.55*fade);
-      lB.__z = (b0.z+b1.z)/2;
-    }
-
-    // rungs (base pairs)
-    for(let i=0;i<PAIRS;i++){
-      const a=A[i], b=B[i], z=(a.z+b.z)/2, fade=edgeFade(i);
-      const r = rungEls[i];
-      r.setAttribute('x1',a.x); r.setAttribute('y1',a.y);
-      r.setAttribute('x2',b.x); r.setAttribute('y2',b.y);
-      r.setAttribute('opacity', depthOpacity(z)*0.4*fade);
-      r.__z = z;
-    }
-
-    // dots
-    dotEls.forEach(d => {
-      const p = d.strand === 'A' ? A[d.i] : B[d.i];
-      const s = depthScale(p.z), fade = edgeFade(d.i);
-      d.g.setAttribute('transform', `translate(${p.x} ${p.y}) scale(${s})`);
-      d.g.setAttribute('opacity', depthOpacity(p.z)*fade);
-      d.__z = p.z;
-    });
-
-    // paint order back-to-front: reappend every element sorted by depth
-    const all = [...rungEls, ...backboneAEls, ...backboneBEls, ...dotEls.map(d=>d.g)];
-    all.sort((x,y) => x.__z - y.__z).forEach(n => svg.appendChild(n));
-
-    requestAnimationFrame(frame);
-  }
-
-  requestAnimationFrame(frame);
+  // ====================== INIT ======================
+  regenerateLayout();
+  startLive();
 })();
 </script>
 </body>
