@@ -105,6 +105,9 @@
 
       <label class="field">Size variability <span class="range-val" id="val-sizevar">100%</span></label>
       <input type="range" id="rng-sizevar" min="0" max="150" step="5" value="100">
+
+      <label class="field">Twinkle <span class="range-val" id="val-twinkle">45%</span></label>
+      <input type="range" id="rng-twinkle" min="0" max="100" step="1" value="45">
     </div>
 
     <div class="section">
@@ -156,6 +159,15 @@
   // both most of the way toward losing the shape entirely.
   const SCATTER_JITTER_MAX = 26;
   const SLOT_JITTER_MAX = 0.95;
+  // Twinkle (0–100%) scales a per-dot size pulse. Each dot pulses at its own
+  // random INTEGER multiple of the rotation angle and its own random phase —
+  // integer frequencies are what keep this exactly loop-safe: sin(freq*rot)
+  // is unchanged whenever rot advances by a full 2π (one full revolution,
+  // the animation's own loop point), for any integer freq, regardless of
+  // rotation speed. Different per-dot frequencies/phases desync the dots
+  // from each other so they don't pulse in unison.
+  const TWINKLE_AMPLITUDE_MAX = 0.55;
+  const TWINKLE_FREQ_MIN = 2, TWINKLE_FREQ_MAX = 7; // integer cycles per revolution
 
   const VIDEO_FPS = 30;
   const VIDEO_DIM = 1080;
@@ -169,7 +181,7 @@
 
   // ====================== STATE ======================
   let count = 220, pitch = 1, speedMult = 1, angleDeg = 25, scatterPct = 30;
-  let lengthMult = 1.65, sizePct = 100, sizeVarPct = 100;
+  let lengthMult = 1.65, sizePct = 100, sizeVarPct = 100, twinklePct = 45;
   let strands = null; // built by regenerateLayout()
   let rotation = 0;
   let lastTs = null;
@@ -205,7 +217,12 @@
           dx: Math.cos(a)*rr, dy: Math.sin(a)*rr,
           // raw skewed size factor (mostly small, occasional larger) — blended
           // toward 1 (uniform) by the Size variability control at draw time
-          rawSizeFactor: 0.4 + Math.pow(Math.random(), 1.8)*1.4
+          rawSizeFactor: 0.4 + Math.pow(Math.random(), 1.8)*1.4,
+          // per-dot twinkle: integer frequency (see TWINKLE_* above), random
+          // phase, and its own amplitude share so dots don't pulse in unison
+          twinkleFreq: TWINKLE_FREQ_MIN + Math.floor(Math.random()*(TWINKLE_FREQ_MAX-TWINKLE_FREQ_MIN+1)),
+          twinklePhase: Math.random()*Math.PI*2,
+          twinkleAmpMul: 0.5 + Math.random()*0.7
         });
       }
       return dots;
@@ -234,6 +251,7 @@
 
     const sizeScale = sizePct/100;
     const sizeVarFrac = sizeVarPct/100;
+    const twinkleFrac = twinklePct/100;
 
     const items = [];
     strands.forEach(dots => {
@@ -242,7 +260,8 @@
         const x = cx + RADIUS*Math.cos(theta);
         const z = RADIUS*Math.sin(theta);
         const p = rotate2D(x+d.dx, d.y+d.dy, cx, cy, angleRad);
-        const sizeMul = (1 + (d.rawSizeFactor-1)*sizeVarFrac) * sizeScale;
+        const twinkle = 1 + TWINKLE_AMPLITUDE_MAX*twinkleFrac*d.twinkleAmpMul*Math.sin(d.twinkleFreq*rot + d.twinklePhase);
+        const sizeMul = (1 + (d.rawSizeFactor-1)*sizeVarFrac) * sizeScale * Math.max(0.05, twinkle);
         items.push({ x:p.x, y:p.y, z, sizeMul });
       });
     });
@@ -326,6 +345,10 @@
     sizeVarPct = parseFloat(e.target.value);
     syncVal('val-sizevar', Math.round(sizeVarPct) + '%');
   });
+  el('rng-twinkle').addEventListener('input', e => {
+    twinklePct = parseFloat(e.target.value);
+    syncVal('val-twinkle', Math.round(twinklePct) + '%');
+  });
   el('rng-speed').addEventListener('input', e => {
     speedMult = parseFloat(e.target.value);
     syncVal('val-speed', speedMult.toFixed(2) + '×');
@@ -342,7 +365,7 @@
   let exportInProgress = false;
 
   function setControlsDisabled(disabled){
-    ['rng-count','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
+    ['rng-count','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-twinkle','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
   }
 
   el('btn-export').addEventListener('click', async () => {
