@@ -264,30 +264,11 @@
   function depthScale(t){ return 0.6 + t*0.6; }    // 0.6 – 1.2
   function depthOpacity(t){ return 0.4 + t*0.6; }  // 0.4 – 1.0
 
-  // ---- color helper: lightens (amt > 0) or darkens (amt < 0) a hex color,
-  // used to derive the background gradient's two stops from one picked color
-  function hexToRgb(hex){
-    hex = hex.replace('#','');
-    if(hex.length === 3) hex = hex.split('').map(c => c+c).join('');
-    const n = parseInt(hex, 16);
-    return [(n>>16)&255, (n>>8)&255, n&255];
-  }
-  function rgbToHex(rgb){
-    return '#' + rgb.map(v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
-  }
-  function shade(hex, amt){
-    const f = c => amt >= 0 ? c + (255-c)*amt : c * (1+amt);
-    return rgbToHex(hexToRgb(hex).map(f));
-  }
-
   // ---- draws the full scene into ctx, in world coordinates (0..VB), at the given rotation/angle ----
   function drawScene(rot, angleRad){
     const cx = VB/2, cy = VB/2;
 
-    const bg = ctx.createRadialGradient(cx, cy*0.85, VB*0.1, cx, cy, VB*0.85);
-    bg.addColorStop(0, shade(bgColor, 0.14));
-    bg.addColorStop(1, shade(bgColor, -0.3));
-    ctx.fillStyle = bg;
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, VB, VB);
 
     const sizeScale = sizePct/100;
