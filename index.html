@@ -78,6 +78,12 @@
   button:disabled{ opacity:.5; cursor:default; transform:none; }
   .btn-primary{ background:var(--accent); color:var(--accent-ink); }
   .btn-primary:hover:not(:disabled){ background:#8388c4; }
+  .btn-secondary{ background:transparent; color:var(--ink); border-color:var(--panel-border); }
+  .btn-secondary:hover:not(:disabled){ border-color:var(--accent); color:var(--accent); }
+
+  .checkbox-row{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--ink-dim); cursor:pointer; margin-top:12px; }
+  .checkbox-row:first-child{ margin-top:0; }
+  .checkbox-row input{ accent-color:var(--accent); width:14px; height:14px; }
 
   .status-line{ font-size:10.5px; color:var(--accent); margin-top:10px; min-height:13px; line-height:1.5; }
   .footer-space{ flex:1; }
@@ -127,6 +133,8 @@
 
         <label class="field">Spread <span class="range-val" id="val-spread">1.00×</span></label>
         <input type="range" id="rng-spread" min="0.6" max="1.8" step="0.05" value="1">
+
+        <button class="btn-secondary" id="btn-shuffle" style="margin-top:14px;">Shuffle pattern ⟲</button>
       </div>
     </div>
 
@@ -167,6 +175,11 @@
 
     <div class="section">
       <h2>Motion</h2>
+      <div id="cloud-motion-fields" hidden>
+        <label class="checkbox-row"><input type="checkbox" id="chk-rotate" checked> Rotate</label>
+        <label class="checkbox-row"><input type="checkbox" id="chk-morph"> Morph through patterns</label>
+      </div>
+
       <label class="field">Speed <span class="range-val" id="val-speed">1.0×</span></label>
       <input type="range" id="rng-speed" min="0.25" max="3" step="0.05" value="1">
 
@@ -236,6 +249,15 @@
   const CLOUD_TENDRIL_LEN_MIN = 1.6, CLOUD_TENDRIL_LEN_MAX = 3.2; // multiple of the zone's own blob radius
   const CLOUD_TENDRIL_POINT_FRAC = 0.28; // fraction of a tendril zone's points placed along the tendril
   const CLOUD_DEPTH_NORM = 380; // reference radius for depth normalization — Cloud's r values run much larger than DNA's fixed RADIUS
+  // Morph: Cloud keeps 4 fixed, independently-shuffled keyframe patterns
+  // (built once per Shuffle/regenerate — never re-randomized mid-loop, or
+  // every cycle would look different and the loop would break). One full
+  // rotation period (rot advancing by 2π — the scene's own established loop
+  // point) maps to exactly one full lap through all 4 keyframes and back to
+  // the first, so the morph and the rotation always complete together: the
+  // cloud moves to a new pattern 3 times (keyframes 1, 2, 3), then the 4th
+  // transition returns it to the exact pattern it started with.
+  const CLOUD_MORPH_KEYFRAMES = 4;
 
   const VIDEO_FPS = 30;
   const VIDEO_DIM = 1080;
@@ -253,6 +275,8 @@
   let lengthMult = 1.65, sizePct = 100, sizeVarPct = 100, twinklePct = 45;
   let dotColor = '#3c3f58', bgColor = '#04051a';
   let cloudZones = 8, cloudSpread = 1;
+  let cloudRotate = true, cloudMorph = false;
+  let cloudKeyframes = null; // 4 fixed patterns for Morph, built alongside `points` whenever shape/structure changes
   let points = []; // flat array, built by regenerateLayout() — every point has {r, theta0, y, dx, dy, ...}
   let rotation = 0;
   let lastTs = null;
@@ -269,7 +293,43 @@
   // offset from center) — a flat 2D scatter that spins edge-on through its
   // own plane, like a rotating coin. One shared draw path, two layouts.
   function regenerateLayout(){
-    points = shapeMode === 'dna' ? buildDnaPoints() : buildCloudPoints();
+    if(shapeMode === 'dna'){
+      points = buildDnaPoints();
+      cloudKeyframes = null;
+    } else {
+      // 4 independently-shuffled patterns, fixed until the next Shuffle/regen
+      cloudKeyframes = [];
+      for(let k=0;k<CLOUD_MORPH_KEYFRAMES;k++) cloudKeyframes.push(buildCloudPoints());
+      points = cloudKeyframes[0]; // the non-Morph static view
+    }
+  }
+
+  // Blends between two of the fixed Cloud keyframes for the current instant
+  // of a continuously-advancing `rot` — see CLOUD_MORPH_KEYFRAMES above for
+  // why this is loop-safe. Position (r, y) is interpolated; color/size/
+  // twinkle identity always comes from keyframe 0, so a dot's "personality"
+  // stays stable across the morph and only its position moves.
+  function computeMorphedPoints(rot){
+    const cyclePos = ((rot % (Math.PI*2)) / (Math.PI*2)) * CLOUD_MORPH_KEYFRAMES;
+    const segIndex = Math.floor(cyclePos) % CLOUD_MORPH_KEYFRAMES;
+    const nextIndex = (segIndex+1) % CLOUD_MORPH_KEYFRAMES;
+    const localT = cyclePos - Math.floor(cyclePos);
+    const eased = localT*localT*(3-2*localT); // smoothstep — avoids a velocity snap at each keyframe boundary
+    const a = cloudKeyframes[segIndex], b = cloudKeyframes[nextIndex], meta = cloudKeyframes[0];
+    const out = new Array(a.length);
+    for(let i=0;i<a.length;i++){
+      const pa = a[i], pb = b[i], pm = meta[i];
+      out[i] = {
+        r: pa.r + (pb.r-pa.r)*eased,
+        theta0: 0,
+        y: pa.y + (pb.y-pa.y)*eased,
+        dx: 0, dy: 0,
+        zoneColor: pm.zoneColor,
+        rawSizeFactor: pm.rawSizeFactor,
+        twinkleFreq: pm.twinkleFreq, twinklePhase: pm.twinklePhase, twinkleAmpMul: pm.twinkleAmpMul
+      };
+    }
+    return out;
   }
 
   // shared per-point randomization: raw size factor (blended toward uniform
@@ -405,9 +465,18 @@
     const twinkleFrac = twinklePct/100;
     const depthNorm = shapeMode === 'dna' ? RADIUS : CLOUD_DEPTH_NORM;
 
+    // spinRot drives the 3D projection only; rot itself (the true,
+    // always-advancing clock) still drives twinkle and the Morph cycle even
+    // when Rotate is off — turning the visual spin off "freezes the camera",
+    // it doesn't stop the animation's underlying clock.
+    const spinRot = (shapeMode === 'cloud' && !cloudRotate) ? 0 : rot;
+    const framePoints = (shapeMode === 'cloud' && cloudMorph && cloudKeyframes)
+      ? computeMorphedPoints(rot)
+      : points;
+
     const items = [];
-    points.forEach(d => {
-      const theta = d.theta0 + rot;
+    framePoints.forEach(d => {
+      const theta = d.theta0 + spinRot;
       const x = cx + d.r*Math.cos(theta);
       const z = d.r*Math.sin(theta);
       const p = rotate2D(x+d.dx, d.y+d.dy, cx, cy, angleRad);
@@ -475,6 +544,7 @@
     el('cloud-fields').hidden = mode !== 'cloud';
     el('dot-color-field').hidden = mode !== 'dna';
     el('cloud-color-note').hidden = mode !== 'cloud';
+    el('cloud-motion-fields').hidden = mode !== 'cloud';
     regenerateLayout();
   }
   el('btn-shape-dna').addEventListener('click', () => setShapeMode('dna'));
@@ -490,6 +560,9 @@
     syncVal('val-spread', cloudSpread.toFixed(2) + '×');
     regenerateLayout();
   });
+  el('btn-shuffle').addEventListener('click', () => regenerateLayout());
+  el('chk-rotate').addEventListener('change', e => { cloudRotate = e.target.checked; });
+  el('chk-morph').addEventListener('change', e => { cloudMorph = e.target.checked; });
 
   el('rng-count').addEventListener('input', e => {
     count = parseInt(e.target.value);
@@ -547,7 +620,7 @@
   let exportInProgress = false;
 
   function setControlsDisabled(disabled){
-    ['btn-shape-dna','btn-shape-cloud','rng-count','rng-zones','rng-spread','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-twinkle','clr-dot','clr-bg','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
+    ['btn-shape-dna','btn-shape-cloud','rng-count','rng-zones','rng-spread','btn-shuffle','chk-rotate','chk-morph','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-twinkle','clr-dot','clr-bg','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
   }
 
   el('btn-export').addEventListener('click', async () => {
