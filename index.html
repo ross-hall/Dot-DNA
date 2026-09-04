@@ -52,6 +52,13 @@
     border-radius:6px; padding:7px 9px; font-family:inherit; font-size:12.5px;
   }
 
+  .toggle-row{ display:flex; gap:8px; }
+  .toggle-row button{
+    flex:1; background:transparent; color:var(--ink-dim); border:1px solid var(--panel-border);
+  }
+  .toggle-row button.active{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  .toggle-row button:hover:not(.active){ border-color:var(--accent); color:var(--ink); }
+
   .color-row{ display:flex; align-items:center; gap:10px; }
   input[type=color]{
     -webkit-appearance:none; appearance:none; width:34px; height:34px; padding:0;
@@ -90,7 +97,15 @@
     <div class="sidebar-head">
       <div class="eyebrow">Reciprocal Space</div>
       <h1>Dot DNA</h1>
-      <p>A rotating double helix, scattered from a single dot motif — no connecting lines.</p>
+      <p>A rotating scatter built from one dot motif — DNA helix or clustered cloud — no connecting lines.</p>
+    </div>
+
+    <div class="section">
+      <h2>Shape</h2>
+      <div class="toggle-row">
+        <button class="active" id="btn-shape-dna">DNA</button>
+        <button id="btn-shape-cloud">Cloud</button>
+      </div>
     </div>
 
     <div class="section">
@@ -98,11 +113,21 @@
       <label class="field">Count <span class="range-val" id="val-count">220</span></label>
       <input type="range" id="rng-count" min="20" max="500" step="5" value="220">
 
-      <label class="field">Length <span class="range-val" id="val-length">1.65×</span></label>
-      <input type="range" id="rng-length" min="0.6" max="2.5" step="0.05" value="1.65">
+      <div id="dna-fields">
+        <label class="field">Length <span class="range-val" id="val-length">1.65×</span></label>
+        <input type="range" id="rng-length" min="0.6" max="2.5" step="0.05" value="1.65">
 
-      <label class="field">Pitch <span class="range-val" id="val-pitch">1.0 turns</span></label>
-      <input type="range" id="rng-pitch" min="1" max="6" step="0.5" value="1">
+        <label class="field">Pitch <span class="range-val" id="val-pitch">1.0 turns</span></label>
+        <input type="range" id="rng-pitch" min="1" max="6" step="0.5" value="1">
+      </div>
+
+      <div id="cloud-fields" hidden>
+        <label class="field">Zones <span class="range-val" id="val-zones">8</span></label>
+        <input type="range" id="rng-zones" min="4" max="12" step="1" value="8">
+
+        <label class="field">Spread <span class="range-val" id="val-spread">1.00×</span></label>
+        <input type="range" id="rng-spread" min="0.6" max="1.8" step="0.05" value="1">
+      </div>
     </div>
 
     <div class="section">
@@ -122,10 +147,15 @@
 
     <div class="section">
       <h2>Colors</h2>
-      <label class="field">Dot color</label>
-      <div class="color-row">
-        <input type="color" id="clr-dot" value="#3c3f58">
-        <span class="color-hex" id="val-dot-color">#3C3F58</span>
+      <div id="dot-color-field">
+        <label class="field">Dot color</label>
+        <div class="color-row">
+          <input type="color" id="clr-dot" value="#3c3f58">
+          <span class="color-hex" id="val-dot-color">#3C3F58</span>
+        </div>
+      </div>
+      <div class="hint" id="cloud-color-note" hidden style="margin:0 0 14px; padding:0; border-top:none;">
+        Cloud zones use a fixed 10-color categorical palette, cycling if there are more than 10 zones.
       </div>
 
       <label class="field">Background color</label>
@@ -194,20 +224,36 @@
   const TWINKLE_AMPLITUDE_MAX = 0.55;
   const TWINKLE_FREQ_MIN = 2, TWINKLE_FREQ_MAX = 7; // integer cycles per revolution
 
+  // Cloud shape: a t-SNE-style scatter of colored clusters ("zones"), built
+  // from the exact same dot motif as DNA. Each zone gets a blob center, its
+  // own radius and point-count weight, and (sometimes) a trailing "tendril"
+  // direction so zones read as irregular, organic blobs rather than perfect
+  // circles — closer to how a real embedding plot looks.
+  const CLOUD_PALETTE = ['#4C78C8','#F28E2B','#54A24B','#E15759','#9D6FC4','#8C6D5C','#E377C2','#9AA0A6','#B5BD2E','#54C4C4'];
+  const CLOUD_AREA = 620;          // side length of the square zone-center placement area, world units
+  const CLOUD_BLOB_MIN = 45, CLOUD_BLOB_MAX = 105; // per-zone blob radius range, world units, before Spread/Scatter scaling
+  const CLOUD_TENDRIL_CHANCE = 0.4;
+  const CLOUD_TENDRIL_LEN_MIN = 1.6, CLOUD_TENDRIL_LEN_MAX = 3.2; // multiple of the zone's own blob radius
+  const CLOUD_TENDRIL_POINT_FRAC = 0.28; // fraction of a tendril zone's points placed along the tendril
+  const CLOUD_DEPTH_NORM = 380; // reference radius for depth normalization — Cloud's r values run much larger than DNA's fixed RADIUS
+
   const VIDEO_FPS = 30;
   const VIDEO_DIM = 1080;
   const VIDEO_BITRATE = 12_000_000;
 
   // The dot's core always stays white — it's the fixed highlight that reads
   // against any dot/background color combination. Dot (disc) color and
-  // background color are both user-adjustable — see STATE below.
+  // background color are both user-adjustable — see STATE below. Cloud zone
+  // colors come from CLOUD_PALETTE instead, baked into each point.
   const CORE = '#ffffff';
 
   // ====================== STATE ======================
+  let shapeMode = 'dna'; // 'dna' | 'cloud'
   let count = 220, pitch = 1, speedMult = 1, angleDeg = 25, scatterPct = 30;
   let lengthMult = 1.65, sizePct = 100, sizeVarPct = 100, twinklePct = 45;
   let dotColor = '#3c3f58', bgColor = '#04051a';
-  let strands = null; // built by regenerateLayout()
+  let cloudZones = 8, cloudSpread = 1;
+  let points = []; // flat array, built by regenerateLayout() — every point has {r, theta0, y, dx, dy, ...}
   let rotation = 0;
   let lastTs = null;
   let rafId = null;
@@ -215,12 +261,33 @@
   const canvas = document.getElementById('stage');
   let ctx = canvas.getContext('2d'); // drawScene always draws through this — export retargets it temporarily
 
-  // ---- layout: fixed per-dot structure, rebuilt whenever Count/Pitch change ----
+  // ---- layout: every point (DNA or Cloud) is projected the same way at draw
+  // time: theta = theta0 + rotation; x = cx + r*cos(theta); z = r*sin(theta);
+  // y is fixed (the rotation axis is vertical). DNA gives every dot the SAME
+  // r (=RADIUS) and varies theta0 (a true helix, constant radius); Cloud
+  // gives every point theta0=0 and a per-point signed r (its horizontal
+  // offset from center) — a flat 2D scatter that spins edge-on through its
+  // own plane, like a rotating coin. One shared draw path, two layouts.
+  function regenerateLayout(){
+    points = shapeMode === 'dna' ? buildDnaPoints() : buildCloudPoints();
+  }
+
+  // shared per-point randomization: raw size factor (blended toward uniform
+  // by Size variability at draw time) and this dot's own twinkle pulse
+  function makePointMeta(){
+    return {
+      rawSizeFactor: 0.4 + Math.pow(Math.random(), 1.8)*1.4,
+      twinkleFreq: TWINKLE_FREQ_MIN + Math.floor(Math.random()*(TWINKLE_FREQ_MAX-TWINKLE_FREQ_MIN+1)),
+      twinklePhase: Math.random()*Math.PI*2,
+      twinkleAmpMul: 0.5 + Math.random()*0.7
+    };
+  }
+
   // Each dot sits near an even slot along its strand, but both its along-
   // strand position and its perpendicular offset get randomized within a
   // bounded range — a real scatter, not a rigid grid, while staying close
   // enough to the ideal helix curve to still read as two coherent strands.
-  function regenerateLayout(){
+  function buildDnaPoints(){
     const strandSpan = LENGTH_BASE*lengthMult;
     const cy = VB/2;
     const yTop = cy - strandSpan/2;
@@ -229,29 +296,87 @@
     const scatterJitter = SCATTER_JITTER_MAX*scatterFrac;
     const slotJitter = SLOT_JITTER_MAX*scatterFrac;
 
-    strands = ['A','B'].map(strand => {
+    const pts = [];
+    ['A','B'].forEach(strand => {
       const phase = strand === 'B' ? Math.PI : 0;
-      const dots = [];
       for(let i=0;i<count;i++){
         const slot = count > 1 ? i/(count-1) : 0.5;
         const u = Math.max(0, Math.min(1, slot + (Math.random()-0.5)*slotSpacing*slotJitter*2));
         const a = Math.random()*Math.PI*2, rr = Math.sqrt(Math.random())*scatterJitter;
-        dots.push({
-          baseTheta: u*Math.PI*2*pitch + phase,
+        pts.push({
+          r: RADIUS,
+          theta0: u*Math.PI*2*pitch + phase,
           y: yTop + u*strandSpan,
           dx: Math.cos(a)*rr, dy: Math.sin(a)*rr,
-          // raw skewed size factor (mostly small, occasional larger) — blended
-          // toward 1 (uniform) by the Size variability control at draw time
-          rawSizeFactor: 0.4 + Math.pow(Math.random(), 1.8)*1.4,
-          // per-dot twinkle: integer frequency (see TWINKLE_* above), random
-          // phase, and its own amplitude share so dots don't pulse in unison
-          twinkleFreq: TWINKLE_FREQ_MIN + Math.floor(Math.random()*(TWINKLE_FREQ_MAX-TWINKLE_FREQ_MIN+1)),
-          twinklePhase: Math.random()*Math.PI*2,
-          twinkleAmpMul: 0.5 + Math.random()*0.7
+          ...makePointMeta()
         });
       }
-      return dots;
     });
+    return pts;
+  }
+
+  // A t-SNE-style scatter of colored clusters, built from the same dot
+  // motif. Zone centers are placed with simple rejection sampling so they
+  // don't pile on each other; each zone is an off-circle blob (a random
+  // stretch axis keeps them from all being perfect circles) and sometimes
+  // grows a thinning "tendril" — a small fraction of its points laid out
+  // along a random direction instead of scattered radially — so the cloud
+  // reads as organic cluster shapes rather than uniform dots.
+  function buildCloudPoints(){
+    const cy = VB/2;
+    const scatterFrac = scatterPct/100;
+    const tightness = 0.35 + scatterFrac*1.3; // Scatter reused here as blob looseness
+    const areaHalf = CLOUD_AREA*cloudSpread/2;
+    const minCenterDist = (CLOUD_BLOB_MIN+CLOUD_BLOB_MAX)/2 * 0.9;
+
+    const centers = [];
+    for(let i=0;i<cloudZones;i++){
+      let zx, zy, tries = 0;
+      do{
+        zx = (Math.random()*2-1)*areaHalf;
+        zy = (Math.random()*2-1)*areaHalf;
+        tries++;
+      } while(tries < 40 && centers.some(c => Math.hypot(c.x-zx, c.y-zy) < minCenterDist));
+      centers.push({ x: zx, y: zy });
+    }
+
+    const pts = [];
+    centers.forEach((center, zi) => {
+      const color = CLOUD_PALETTE[zi % CLOUD_PALETTE.length];
+      const blobR = (CLOUD_BLOB_MIN + Math.random()*(CLOUD_BLOB_MAX-CLOUD_BLOB_MIN)) * tightness;
+      const stretchAngle = Math.random()*Math.PI*2;
+      const stretchX = 0.7 + Math.random()*0.7, stretchY = 0.7 + Math.random()*0.7;
+      const hasTendril = Math.random() < CLOUD_TENDRIL_CHANCE;
+      const tendrilAngle = Math.random()*Math.PI*2;
+      const tendrilLen = blobR * (CLOUD_TENDRIL_LEN_MIN + Math.random()*(CLOUD_TENDRIL_LEN_MAX-CLOUD_TENDRIL_LEN_MIN));
+
+      for(let i=0;i<count;i++){
+        let px, py;
+        if(hasTendril && Math.random() < CLOUD_TENDRIL_POINT_FRAC){
+          const t = Math.pow(Math.random(), 0.6); // biased toward the tip, so it thins out
+          const along = t*tendrilLen;
+          const perp = (Math.random()-0.5)*2 * blobR*0.3*(1-t*0.8); // taper the tendril's own thickness
+          const ax = Math.cos(tendrilAngle), ay = Math.sin(tendrilAngle);
+          px = ax*along - ay*perp;
+          py = ay*along + ax*perp;
+        } else {
+          const angle = Math.random()*Math.PI*2;
+          const radius = Math.sqrt(Math.random())*blobR;
+          const lx = Math.cos(angle)*radius*stretchX, ly = Math.sin(angle)*radius*stretchY;
+          px = lx*Math.cos(stretchAngle) - ly*Math.sin(stretchAngle);
+          py = lx*Math.sin(stretchAngle) + ly*Math.cos(stretchAngle);
+        }
+        pts.push({
+          r: center.x + px,
+          theta0: 0,
+          y: cy + center.y + py,
+          dx: 0, dy: 0,
+          zoneColor: color,
+          ...makePointMeta()
+        });
+      }
+    });
+    return pts;
   }
 
   function rotate2D(x, y, cx, cy, rad){
@@ -260,7 +385,11 @@
     return { x: cx + dx*c - dy*s, y: cy + dx*s + dy*c };
   }
 
-  function depthT(z){ return (z/RADIUS + 1)/2; } // 0 = far, 1 = near
+  // norm is the reference radius for this shape mode — DNA's fixed helix
+  // RADIUS, or Cloud's much larger point-spread constant. Clamped: Cloud's
+  // per-point r can exceed the norm out near a zone's outer edge, and an
+  // unclamped t would blow depthScale/depthOpacity outside their real range.
+  function depthT(z, norm){ return Math.max(0, Math.min(1, (z/norm + 1)/2)); } // 0 = far, 1 = near
   function depthScale(t){ return 0.6 + t*0.6; }    // 0.6 – 1.2
   function depthOpacity(t){ return 0.4 + t*0.6; }  // 0.4 – 1.0
 
@@ -274,27 +403,26 @@
     const sizeScale = sizePct/100;
     const sizeVarFrac = sizeVarPct/100;
     const twinkleFrac = twinklePct/100;
+    const depthNorm = shapeMode === 'dna' ? RADIUS : CLOUD_DEPTH_NORM;
 
     const items = [];
-    strands.forEach(dots => {
-      dots.forEach(d => {
-        const theta = d.baseTheta + rot;
-        const x = cx + RADIUS*Math.cos(theta);
-        const z = RADIUS*Math.sin(theta);
-        const p = rotate2D(x+d.dx, d.y+d.dy, cx, cy, angleRad);
-        const twinkle = 1 + TWINKLE_AMPLITUDE_MAX*twinkleFrac*d.twinkleAmpMul*Math.sin(d.twinkleFreq*rot + d.twinklePhase);
-        const sizeMul = (1 + (d.rawSizeFactor-1)*sizeVarFrac) * sizeScale * Math.max(0.05, twinkle);
-        items.push({ x:p.x, y:p.y, z, sizeMul });
-      });
+    points.forEach(d => {
+      const theta = d.theta0 + rot;
+      const x = cx + d.r*Math.cos(theta);
+      const z = d.r*Math.sin(theta);
+      const p = rotate2D(x+d.dx, d.y+d.dy, cx, cy, angleRad);
+      const twinkle = 1 + TWINKLE_AMPLITUDE_MAX*twinkleFrac*d.twinkleAmpMul*Math.sin(d.twinkleFreq*rot + d.twinklePhase);
+      const sizeMul = (1 + (d.rawSizeFactor-1)*sizeVarFrac) * sizeScale * Math.max(0.05, twinkle);
+      items.push({ x:p.x, y:p.y, z, sizeMul, color: d.zoneColor });
     });
 
     items.sort((a,b) => a.z - b.z);
     items.forEach(it => {
-      const t = depthT(it.z);
+      const t = depthT(it.z, depthNorm);
       const s = depthScale(t) * it.sizeMul;
       const op = depthOpacity(t);
       ctx.globalAlpha = op;
-      ctx.fillStyle = dotColor;
+      ctx.fillStyle = it.color || dotColor;
       ctx.beginPath(); ctx.arc(it.x, it.y, DOT_OUTER_R*s, 0, Math.PI*2); ctx.fill();
       ctx.globalAlpha = Math.max(op, 0.85);
       ctx.fillStyle = CORE;
@@ -338,6 +466,30 @@
   // ====================== CONTROLS ======================
   const el = id => document.getElementById(id);
   function syncVal(id, text){ el(id).textContent = text; }
+
+  function setShapeMode(mode){
+    shapeMode = mode;
+    el('btn-shape-dna').classList.toggle('active', mode === 'dna');
+    el('btn-shape-cloud').classList.toggle('active', mode === 'cloud');
+    el('dna-fields').hidden = mode !== 'dna';
+    el('cloud-fields').hidden = mode !== 'cloud';
+    el('dot-color-field').hidden = mode !== 'dna';
+    el('cloud-color-note').hidden = mode !== 'cloud';
+    regenerateLayout();
+  }
+  el('btn-shape-dna').addEventListener('click', () => setShapeMode('dna'));
+  el('btn-shape-cloud').addEventListener('click', () => setShapeMode('cloud'));
+
+  el('rng-zones').addEventListener('input', e => {
+    cloudZones = parseInt(e.target.value);
+    syncVal('val-zones', cloudZones);
+    regenerateLayout();
+  });
+  el('rng-spread').addEventListener('input', e => {
+    cloudSpread = parseFloat(e.target.value);
+    syncVal('val-spread', cloudSpread.toFixed(2) + '×');
+    regenerateLayout();
+  });
 
   el('rng-count').addEventListener('input', e => {
     count = parseInt(e.target.value);
@@ -395,7 +547,7 @@
   let exportInProgress = false;
 
   function setControlsDisabled(disabled){
-    ['rng-count','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-twinkle','clr-dot','clr-bg','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
+    ['btn-shape-dna','btn-shape-cloud','rng-count','rng-zones','rng-spread','rng-scatter','rng-length','rng-pitch','rng-size','rng-sizevar','rng-twinkle','clr-dot','clr-bg','rng-speed','rng-angle','num-loops'].forEach(id => el(id).disabled = disabled);
   }
 
   el('btn-export').addEventListener('click', async () => {
@@ -466,7 +618,7 @@
       const blob = new Blob(chunks, { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'dot-dna-helix.mp4';
+      a.href = url; a.download = `dot-dna-${shapeMode}.mp4`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
